@@ -25,7 +25,7 @@ class Table {
     final result = schema.safeParse(body);
 
     if (!result.success) {
-      throw MockItException(400, result.error?.issues.first.message ?? 'Invalid request!');
+      throw MockItException(400, result.error?.issues.first.message ?? 'Invalid request!', 'invalid_request');
     }
 
     return result.data;
@@ -39,7 +39,7 @@ class Table {
     final result = schema.safeParse(body);
 
     if (!result.success) {
-      throw MockItException(400, result.error?.issues.first.message ?? 'Invalid request!');
+      throw MockItException(400, result.error?.issues.first.message ?? 'Invalid request!', 'invalid_request');
     }
 
     return result.data;

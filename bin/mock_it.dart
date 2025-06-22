@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/args.dart';
-import 'package:mock_it/src/exceptions.dart';
+import 'package:mock_it/src/extensions/exception_extension.dart';
 import 'package:mock_it/src/parser.dart';
 import 'package:mock_it/src/table.dart';
 import 'package:path/path.dart' as p;
@@ -50,15 +50,29 @@ void main(List<String> args) async {
           if (request.headers['Content-Type'] != 'application/json') {
             return Response(
               400,
-              body: json.encode({'message': 'Invalid request, expected application/json only!'}),
-              headers: {'Content-Type': 'application/json'},
+              body: json.encode(
+                {
+                  'message': 'Invalid request, expected application/json only!',
+                  'code': 'invalid_content_type',
+                },
+              ),
+              headers: {
+                'Content-Type': 'application/json',
+              },
             );
           }
           if ((request.contentLength ?? 0) <= 0) {
             return Response(
               400,
-              body: json.encode({'message': 'Invalid request, body is empty!'}),
-              headers: {'Content-Type': 'application/json'},
+              body: json.encode(
+                {
+                  'message': 'Invalid request, body is empty!',
+                  'code': 'empty_body',
+                },
+              ),
+              headers: {
+                'Content-Type': 'application/json',
+              },
             );
           }
           final body = json.decode(await request.readAsString()) as Map<String, dynamic>;
@@ -73,13 +87,18 @@ void main(List<String> args) async {
               );
 
               if (check.isEmpty) {
+                final referencePath = '${ref.referencesTable}/${ref.referencesColumn}/${validated[ref.name]}';
                 return Response(
-                  400,
-                  body: json.encode({
-                    'message':
-                        'Reference to [${ref.referencesTable}] with [${ref.referencesColumn}] equal [${validated[ref.name]}] not found!',
-                  }),
-                  headers: {'Content-Type': 'application/json'},
+                  404,
+                  body: json.encode(
+                    {
+                      'message': 'Reference to $referencePath not found!',
+                      'code': 'reference_not_found',
+                    },
+                  ),
+                  headers: {
+                    'Content-Type': 'application/json',
+                  },
                 );
               }
             }
@@ -91,26 +110,27 @@ void main(List<String> args) async {
           );
           if (result.isEmpty) {
             return Response(
-              400,
-              body: json.encode({'message': 'Fail to insert into ${table.name}!'}),
-              headers: {'Content-Type': 'application/json'},
+              500,
+              body: json.encode(
+                {
+                  'message': 'Fail to insert into ${table.name}!',
+                  'code': 'internal_error',
+                },
+              ),
+              headers: {
+                'Content-Type': 'application/json',
+              },
             );
           }
           return Response(
             201,
             body: json.encode(result.first),
-            headers: {'Content-Type': 'application/json'},
-          );
-        } on MockItException catch (e) {
-          return e.toResponse();
-        } on Exception catch (e) {
-          return Response(
-            400,
-            body: json.encode({'message': e.toString()}),
             headers: {
               'Content-Type': 'application/json',
             },
           );
+        } on Exception catch (e) {
+          return e.toResponse();
         }
       },
     );
@@ -118,60 +138,64 @@ void main(List<String> args) async {
     router.get(
       '/${table.name}',
       (Request request) {
-        final page = int.parse(request.url.queryParameters['page'] ?? '1');
-        final limit = int.parse(request.url.queryParameters['limit'] ?? '10');
-        final params = Map<String, String>.from(request.requestedUri.queryParameters)
-          ..remove('page')
-          ..remove('limit');
-        for (final key in params.keys) {
-          if (!table.columns.any((e) => e.name == key)) {
-            params.remove(key);
+        try {
+          final page = int.parse(request.url.queryParameters['page'] ?? '1');
+          final limit = int.parse(request.url.queryParameters['limit'] ?? '10');
+          final params = Map<String, String>.from(request.requestedUri.queryParameters)
+            ..remove('page')
+            ..remove('limit');
+          for (final key in params.keys) {
+            if (!table.columns.any((e) => e.name == key)) {
+              params.remove(key);
+            }
           }
+          final where = switch (params.isEmpty) {
+            true => '',
+            false => ' WHERE ${params.keys.map((e) => '$e = ?').join(' AND ')}',
+          };
+          final query = 'SELECT * FROM ${table.name}$where LIMIT ? OFFSET ?';
+          final values = [
+            for (final key in params.keys)
+              switch (table.columns.firstWhere((e) => e.name == key).type) {
+                'INT' || 'INTEGER' => int.parse(params[key] ?? '0'),
+                'FLOAT' => double.parse(params[key] ?? '0'),
+                'TIMESTAMP' || 'TIMESTAMPTZ' => DateTime.parse(params[key] ?? '0'),
+                _ => params[key],
+              },
+            limit,
+            (page - 1) * limit,
+          ];
+          final result = db.select(query, values);
+          final total = db.select('SELECT COUNT(*) FROM ${table.name}')[0]['COUNT(*)'];
+          final nextPageURL = request.requestedUri.replace(
+            queryParameters: {
+              ...request.url.queryParameters,
+              'page': (page + 1).toString(),
+            },
+          );
+          final prevPageURL = request.requestedUri.replace(
+            queryParameters: {
+              ...request.url.queryParameters,
+              'page': (page - 1).toString(),
+            },
+          );
+          return Response(
+            200,
+            body: json.encode(
+              <String, dynamic>{
+                'page': page,
+                'limit': limit,
+                'total': total,
+                'next_page_url': page < total / limit ? nextPageURL.toString() : null,
+                'prev_page_url': page > 1 ? prevPageURL.toString() : null,
+                'data': result,
+              },
+            ),
+            headers: {'Content-Type': 'application/json'},
+          );
+        } on Exception catch (e) {
+          return e.toResponse();
         }
-        final where = switch (params.isEmpty) {
-          true => '',
-          false => ' WHERE ${params.keys.map((e) => '$e = ?').join(' AND ')}',
-        };
-        final query = 'SELECT * FROM ${table.name}$where LIMIT ? OFFSET ?';
-        final values = [
-          for (final key in params.keys)
-            switch (table.columns.firstWhere((e) => e.name == key).type) {
-              'INT' || 'INTEGER' => int.parse(params[key] ?? '0'),
-              'FLOAT' => double.parse(params[key] ?? '0'),
-              'TIMESTAMP' || 'TIMESTAMPTZ' => DateTime.parse(params[key] ?? '0'),
-              _ => params[key],
-            },
-          limit,
-          (page - 1) * limit,
-        ];
-        final result = db.select(query, values);
-        final total = db.select('SELECT COUNT(*) FROM ${table.name}')[0]['COUNT(*)'];
-        final nextPageURL = request.requestedUri.replace(
-          queryParameters: {
-            ...request.url.queryParameters,
-            'page': (page + 1).toString(),
-          },
-        );
-        final prevPageURL = request.requestedUri.replace(
-          queryParameters: {
-            ...request.url.queryParameters,
-            'page': (page - 1).toString(),
-          },
-        );
-        return Response(
-          200,
-          body: json.encode(
-            <String, dynamic>{
-              'page': page,
-              'limit': limit,
-              'total': total,
-              'next_page_url': page < total / limit ? nextPageURL.toString() : null,
-              'prev_page_url': page > 1 ? prevPageURL.toString() : null,
-              'data': result,
-            },
-          ),
-          headers: {'Content-Type': 'application/json'},
-        );
       },
     );
     if (table.hasPrimaryKey()) {
@@ -189,29 +213,33 @@ void main(List<String> args) async {
       router.get(
         '/${table.name}/$pkPattern',
         (Request request, String pk) {
-          final result = db.select(
-            'SELECT * FROM ${table.name} WHERE $pkName = ?',
-            [
-              switch (pkType) {
-                'INT' || 'INTEGER' => int.tryParse(pk),
-                _ => pk,
-              },
-            ],
-          );
+          try {
+            final result = db.select(
+              'SELECT * FROM ${table.name} WHERE $pkName = ?',
+              [
+                switch (pkType) {
+                  'INT' || 'INTEGER' => int.tryParse(pk),
+                  _ => pk,
+                },
+              ],
+            );
 
-          if (result.isEmpty) {
+            if (result.isEmpty) {
+              return Response(
+                404,
+                body: json.encode({'message': 'Not found!'}),
+                headers: {'Content-Type': 'application/json'},
+              );
+            }
+
             return Response(
-              404,
-              body: json.encode({'message': 'Not found!'}),
+              200,
+              body: json.encode(result.first),
               headers: {'Content-Type': 'application/json'},
             );
+          } on Exception catch (e) {
+            return e.toResponse();
           }
-
-          return Response(
-            200,
-            body: json.encode(result.first),
-            headers: {'Content-Type': 'application/json'},
-          );
         },
       );
       if (table.columns.any((e) => e.name == 'updated_at')) {
@@ -282,16 +310,8 @@ void main(List<String> args) async {
                 body: json.encode(result.first),
                 headers: {'Content-Type': 'application/json'},
               );
-            } on MockItException catch (e) {
-              return e.toResponse();
             } on Exception catch (e) {
-              return Response(
-                400,
-                body: json.encode({'message': e.toString()}),
-                headers: {
-                  'Content-Type': 'application/json',
-                },
-              );
+              return e.toResponse();
             }
           },
         );
@@ -313,25 +333,24 @@ void main(List<String> args) async {
             if (result.isEmpty) {
               return Response(
                 404,
-                body: json.encode({'message': 'Not found!'}),
+                body: json.encode(
+                  {
+                    'message': 'Not found!',
+                    'code': 'not_found',
+                  },
+                ),
                 headers: {'Content-Type': 'application/json'},
               );
             }
             return Response(
               200,
               body: json.encode(result.first),
-              headers: {'Content-Type': 'application/json'},
-            );
-          } on MockItException catch (e) {
-            return e.toResponse();
-          } on Exception catch (e) {
-            return Response(
-              400,
-              body: json.encode({'message': e.toString()}),
               headers: {
                 'Content-Type': 'application/json',
               },
             );
+          } on Exception catch (e) {
+            return e.toResponse();
           }
         },
       );
@@ -371,89 +390,102 @@ void recursive(
       router.get(
         '/${pkTable.name}/$pkPattern/${fkTable.name}',
         (Request request, String pk) {
-          final page = int.parse(request.url.queryParameters['page'] ?? '1');
-          final limit = int.parse(request.url.queryParameters['limit'] ?? '10');
-          final params = Map<String, String>.from(request.requestedUri.queryParameters)
-            ..remove('page')
-            ..remove('limit');
-          for (final key in params.keys) {
-            if (!fkTable.columns.any((e) => e.name == key)) {
-              params.remove(key);
+          try {
+            final page = int.parse(request.url.queryParameters['page'] ?? '1');
+            final limit = int.parse(request.url.queryParameters['limit'] ?? '10');
+            final params = Map<String, String>.from(request.requestedUri.queryParameters)
+              ..remove('page')
+              ..remove('limit');
+            for (final key in params.keys) {
+              if (!fkTable.columns.any((e) => e.name == key)) {
+                params.remove(key);
+              }
             }
-          }
-          final where = switch (params.isEmpty) {
-            true => '',
-            false => ' AND ${params.keys.map((e) => '$e = ?').join(' AND ')}',
-          };
+            final where = switch (params.isEmpty) {
+              true => '',
+              false => ' AND ${params.keys.map((e) => '$e = ?').join(' AND ')}',
+            };
 
-          final result = db.select(
-            'SELECT * FROM ${fkTable.name} WHERE $pkName = ?$where',
-            [
-              switch (pkType) {
-                'INT' || 'INTEGER' => int.tryParse(pk),
-                _ => pk,
-              },
-              for (final key in params.keys)
-                switch (fkTable.columns.firstWhere((e) => e.name == key).type) {
-                  'INT' || 'INTEGER' => int.parse(params[key] ?? '0'),
-                  'FLOAT' => double.parse(params[key] ?? '0'),
-                  'TIMESTAMP' || 'TIMESTAMPTZ' => DateTime.parse(params[key] ?? '0'),
-                  _ => params[key],
+            final result = db.select(
+              'SELECT * FROM ${fkTable.name} WHERE $pkName = ?$where',
+              [
+                switch (pkType) {
+                  'INT' || 'INTEGER' => int.tryParse(pk),
+                  _ => pk,
                 },
-            ],
-          );
+                for (final key in params.keys)
+                  switch (fkTable.columns.firstWhere((e) => e.name == key).type) {
+                    'INT' || 'INTEGER' => int.parse(params[key] ?? '0'),
+                    'FLOAT' => double.parse(params[key] ?? '0'),
+                    'TIMESTAMP' || 'TIMESTAMPTZ' => DateTime.parse(params[key] ?? '0'),
+                    _ => params[key],
+                  },
+              ],
+            );
 
-          final total = db.select('SELECT COUNT(*) FROM ${fkTable.name} WHERE $pkName = ?', [pk])[0]['COUNT(*)'];
+            final total = db.select('SELECT COUNT(*) FROM ${fkTable.name} WHERE $pkName = ?', [pk])[0]['COUNT(*)'];
 
-          return Response(
-            200,
-            body: json.encode({
-              'page': page,
-              'limit': limit,
-              'total': total,
-              'next_page_url': page < total / limit
-                  ? request.requestedUri.replace(queryParameters: {'page': (page + 1).toString()}).toString()
-                  : null,
-              'prev_page_url': page > 1
-                  ? request.requestedUri.replace(queryParameters: {'page': (page - 1).toString()}).toString()
-                  : null,
-              'data': result,
-            }),
-            headers: {'Content-Type': 'application/json'},
-          );
+            return Response(
+              200,
+              body: json.encode({
+                'page': page,
+                'limit': limit,
+                'total': total,
+                'next_page_url': page < total / limit
+                    ? request.requestedUri.replace(queryParameters: {'page': (page + 1).toString()}).toString()
+                    : null,
+                'prev_page_url': page > 1
+                    ? request.requestedUri.replace(queryParameters: {'page': (page - 1).toString()}).toString()
+                    : null,
+                'data': result,
+              }),
+              headers: {'Content-Type': 'application/json'},
+            );
+          } on Exception catch (e) {
+            return e.toResponse();
+          }
         },
       );
       routes.add('[${pkTable.name}] | GET => /${pkTable.name}/$pkPattern/${fkTable.name}/$fkPattern');
       router.get(
         '/${pkTable.name}/$pkPattern/${fkTable.name}/$fkPattern',
         (Request request, String pk, String fk) {
-          final result = db.select(
-            'SELECT * FROM ${fkTable.name} WHERE $pkName = ? AND $fkName = ?',
-            [
-              switch (pkType) {
-                'INT' || 'INTEGER' => int.tryParse(pk),
-                _ => pk,
-              },
-              switch (fkType) {
-                'INT' || 'INTEGER' => int.tryParse(fk),
-                _ => fk,
-              },
-            ],
-          );
+          try {
+            final result = db.select(
+              'SELECT * FROM ${fkTable.name} WHERE $pkName = ? AND $fkName = ?',
+              [
+                switch (pkType) {
+                  'INT' || 'INTEGER' => int.tryParse(pk),
+                  _ => pk,
+                },
+                switch (fkType) {
+                  'INT' || 'INTEGER' => int.tryParse(fk),
+                  _ => fk,
+                },
+              ],
+            );
 
-          if (result.isEmpty) {
+            if (result.isEmpty) {
+              return Response(
+                404,
+                body: json.encode(
+                  {
+                    'message': 'Not found!',
+                    'code': 'not_found',
+                  },
+                ),
+                headers: {'Content-Type': 'application/json'},
+              );
+            }
+
             return Response(
-              404,
-              body: json.encode({'message': 'Not found!'}),
+              200,
+              body: json.encode(result.first),
               headers: {'Content-Type': 'application/json'},
             );
+          } on Exception catch (e) {
+            return e.toResponse();
           }
-
-          return Response(
-            200,
-            body: json.encode(result.first),
-            headers: {'Content-Type': 'application/json'},
-          );
         },
       );
 
