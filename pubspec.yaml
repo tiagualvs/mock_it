@@ -1,9 +1,9 @@
 name: mock_it
 description: A starting point for Dart libraries or applications.
-version: 1.0.0
+version: 1.0.0+1
 
 executables: 
-  mock_it: bin/mock_it.dart
+  mock_it:
 
 environment:
   sdk: ^3.8.1
