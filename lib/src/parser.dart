@@ -13,7 +13,9 @@ Future<List<Table>> parseSqlFile(String content) async {
     final tableName = tableMatch.group(1)!;
     final rawColumns = tableMatch.group(2)!;
 
-    final lines = rawColumns.split(',').map((line) => line.trim().replaceAll(RegExp(r'\s+'), ' ')).toList();
+    // final lines = rawColumns.split(',').map((line) => line.trim().replaceAll(RegExp(r'\s+'), ' ')).toList();
+
+    final lines = safeSplitColumns(rawColumns);
 
     final columns = <Column>[];
 
@@ -32,7 +34,9 @@ Future<List<Table>> parseSqlFile(String content) async {
       }
 
       final parts = line.split(' ');
-      if (parts.length < 2) continue;
+      if (parts.length < 2 || line.startsWith('UNIQUE') || line.startsWith('CHECK')) {
+        continue;
+      }
 
       final name = parts[0];
       final type = parts[1];
@@ -61,4 +65,33 @@ Future<List<Table>> parseSqlFile(String content) async {
   }
 
   return tables.values.toList();
+}
+
+List<String> safeSplitColumns(String input) {
+  final result = <String>[];
+  final buffer = StringBuffer();
+  int parens = 0;
+
+  for (int i = 0; i < input.length; i++) {
+    final char = input[i];
+
+    if (char == '(') {
+      parens++;
+    } else if (char == ')') {
+      parens--;
+    }
+
+    if (char == ',' && parens == 0) {
+      result.add(buffer.toString().trim());
+      buffer.clear();
+    } else {
+      buffer.write(char);
+    }
+  }
+
+  if (buffer.isNotEmpty) {
+    result.add(buffer.toString().trim());
+  }
+
+  return result;
 }

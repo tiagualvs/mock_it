@@ -49,6 +49,41 @@ class Column {
     }
   }
 
+  Map<String, dynamic> toSwagger() {
+    return {
+      'type': switch (type) {
+        'TEXT' || 'VARCHAR' => 'string',
+        'INT' || 'INTEGER' => 'integer',
+        'BOOLEAN' => 'boolean',
+        'TIMESTAMP' || 'DATETIME' => 'string',
+        _ => 'string',
+      },
+      'example': switch (type) {
+        'TEXT' || 'VARCHAR' => '',
+        'INT' || 'INTEGER' => 0,
+        'BOOLEAN' => true,
+        'TIMESTAMP' || 'DATETIME' => '0000-00-00 00:00:00',
+        _ => '',
+      },
+    };
+  }
+
+  Map<String, dynamic> toSwaggerQueryParameters() {
+    return {
+      'name': name,
+      'required': false,
+      'in': 'query',
+      'example': switch (type) {
+        'TEXT' || 'VARCHAR' => '',
+        'INT' || 'INTEGER' => 0,
+        'BOOLEAN' => true,
+        'TIMESTAMP' || 'DATETIME' => '0000-00-00 00:00:00',
+        _ => '',
+      },
+      'schema': toSwagger(),
+    };
+  }
+
   // Atualize o toMap
   Map<String, dynamic> toMap() => {
     'name': name,

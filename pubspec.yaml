@@ -1,6 +1,6 @@
 name: mock_it
 description: A mock server based on SQLite made with Dart.
-version: 1.0.0+2
+version: 1.0.0+3
 
 executables: 
   mock_it:
@@ -13,7 +13,9 @@ dependencies:
   path: ^1.9.1
   shelf: ^1.4.2
   shelf_router: ^1.1.4
+  shelf_swagger_ui: ^2.0.0
   sqlite3: ^2.7.6
+  strings: ^4.0.0
   zard: ^0.0.17
 
 dev_dependencies:

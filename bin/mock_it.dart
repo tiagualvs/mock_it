@@ -9,13 +9,13 @@ import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as io;
 import 'package:shelf_router/shelf_router.dart';
+import 'package:shelf_swagger_ui/shelf_swagger_ui.dart';
 import 'package:sqlite3/sqlite3.dart';
 
 final parser = ArgParser()
   ..addOption('port', abbr: 'p', help: 'Port to listen on!')
   ..addOption('input', abbr: 'i', help: 'Path to the input SQL file!')
   ..addOption('database', abbr: 'd', help: 'Path to the input database file!')
-  ..addFlag('verbose', abbr: 'v', defaultsTo: false)
   ..addFlag('help', abbr: 'h', defaultsTo: false);
 void main(List<String> args) async {
   final result = parser.parse(args);
@@ -35,14 +35,28 @@ void main(List<String> args) async {
     true => sqlite3.open(p.normalize(result['database'] as String)),
     false => sqlite3.openInMemory(),
   };
-  final verbose = result['verbose'] as bool;
-  final routes = <String>[];
   final content = await input.readAsString();
   final tables = await parseSqlFile(content);
   db.execute(content);
   final router = Router();
+  final swagger = <String, dynamic>{
+    'openapi': '3.0.0',
+    'info': {
+      'title': 'MockIt',
+      'version': '1.0.0',
+      'description': 'MockIt API generated from SQL file.',
+      'license': {
+        'name': 'MIT',
+        'url': 'https://choosealicense.com/licenses/mit/',
+      },
+    },
+    'paths': {},
+  };
   for (final table in tables) {
-    routes.add('[${table.name}] | POST => /${table.name}');
+    swagger['paths'] = <String, dynamic>{
+      ...?swagger['paths'],
+      ...table.toSwagger(tables),
+    };
     router.post(
       '/${table.name}',
       (Request request) async {
@@ -134,7 +148,6 @@ void main(List<String> args) async {
         }
       },
     );
-    routes.add('[${table.name}] | GET => /${table.name}');
     router.get(
       '/${table.name}',
       (Request request) {
@@ -207,9 +220,8 @@ void main(List<String> args) async {
         _ => '<pk>',
       };
 
-      recursive(table, pkPattern, pkName, pkType, tables, router, db, routes);
+      recursive(table, pkPattern, pkName, pkType, tables, router, db);
 
-      routes.add('[${table.name}] | GET => /${table.name}/$pkPattern');
       router.get(
         '/${table.name}/$pkPattern',
         (Request request, String pk) {
@@ -243,7 +255,6 @@ void main(List<String> args) async {
         },
       );
       if (table.columns.any((e) => e.name == 'updated_at')) {
-        routes.add('[${table.name}] | PUT => /${table.name}/$pkPattern');
         router.put(
           '/${table.name}/$pkPattern',
           (Request request, String pk) async {
@@ -316,7 +327,6 @@ void main(List<String> args) async {
           },
         );
       }
-      routes.add('[${table.name}] | DELETE => /${table.name}/$pkPattern');
       router.delete(
         '/${table.name}/$pkPattern',
         (Request request, String pk) {
@@ -356,10 +366,10 @@ void main(List<String> args) async {
       );
     }
   }
-  if (verbose) {
-    stdout.writeln('Routes:');
-    stdout.writeln(routes.join('\n'));
-  }
+  router.mount(
+    '/docs',
+    SwaggerUI(json.encode(swagger), title: 'MockIt API').call,
+  );
   final handler = Pipeline().addMiddleware(logRequests()).addHandler(router.call);
   final server = await io.serve(handler, '0.0.0.0', port);
   print('Listening on http://${server.address.host}:${server.port}');
@@ -373,7 +383,6 @@ void recursive(
   List<Table> tables,
   Router router,
   Database db,
-  List<String> routes,
 ) {
   if (tables.any((t) => t.columns.any((col) => col.referencesTable == pkTable.name))) {
     final fkTables = tables.where((t) => t.columns.any((col) => col.referencesTable == pkTable.name)).toSet().toList();
@@ -385,8 +394,6 @@ void recursive(
         'INT' || 'INTEGER' => r'<fk|[\d]+>',
         _ => '<fk>',
       };
-
-      routes.add('[${pkTable.name}] | GET => /${pkTable.name}/$pkPattern/${fkTable.name}');
       router.get(
         '/${pkTable.name}/$pkPattern/${fkTable.name}',
         (Request request, String pk) {
@@ -446,7 +453,6 @@ void recursive(
           }
         },
       );
-      routes.add('[${pkTable.name}] | GET => /${pkTable.name}/$pkPattern/${fkTable.name}/$fkPattern');
       router.get(
         '/${pkTable.name}/$pkPattern/${fkTable.name}/$fkPattern',
         (Request request, String pk, String fk) {
@@ -490,7 +496,7 @@ void recursive(
       );
 
       if (tables.any((t) => t.columns.any((col) => col.referencesTable == fkTable.name))) {
-        recursive(fkTable, fkPattern, fkName, fkType, tables, router, db, routes);
+        recursive(fkTable, fkPattern, fkName, fkType, tables, router, db);
       }
     }
   }
