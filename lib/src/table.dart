@@ -274,16 +274,16 @@ class Table {
           },
         },
       },
-      '/$name/{${trySingularize(name)}_${primaryKey()}}': {
+      '/$name/{${toSingular(name)}_${primaryKey()}}': {
         'get': {
-          'description': 'Get ${trySingularize(name)} by id',
+          'description': 'Get ${toSingular(name)} by id',
           'tags': [name.toCapitalised()],
           'parameters': [
             ...columns
                 .where((c) => c.primaryKey)
                 .map(
                   (c) => {
-                    'name': '${trySingularize(name)}_${c.name}',
+                    'name': '${toSingular(name)}_${c.name}',
                     'in': 'path',
                     'required': true,
                     'schema': c.toSwagger(),
@@ -314,14 +314,14 @@ class Table {
         },
         if (columns.any((c) => c.name == 'updated_at'))
           'put': {
-            'description': 'Update ${trySingularize(name)} by id',
+            'description': 'Update ${toSingular(name)} by id',
             'tags': [name.toCapitalised()],
             'parameters': [
               ...columns
                   .where((c) => c.primaryKey)
                   .map(
                     (c) => {
-                      'name': '${trySingularize(name)}_${c.name}',
+                      'name': '${toSingular(name)}_${c.name}',
                       'in': 'path',
                       'required': true,
                       'schema': c.toSwagger(),
@@ -413,14 +413,14 @@ class Table {
             },
           },
         'delete': {
-          'description': 'Delete ${trySingularize(name)} by id',
+          'description': 'Delete ${toSingular(name)} by id',
           'tags': [name.toCapitalised()],
           'parameters': [
             ...columns
                 .where((c) => c.primaryKey)
                 .map(
                   (c) => {
-                    'name': '${trySingularize(name)}_${c.name}',
+                    'name': '${toSingular(name)}_${c.name}',
                     'in': 'path',
                     'required': true,
                     'schema': c.toSwagger(),
@@ -491,9 +491,9 @@ class Table {
         },
       },
       for (final table in tables.where((t) => columns.any((c) => c.referencesTable == t.name))) ...{
-        '/${table.name}/{${trySingularize(table.name)}_${table.primaryKey()}}/$name': {
+        '/${table.name}/{${toSingular(table.name)}_${table.primaryKey()}}/$name': {
           'get': {
-            'description': 'Get $name from ${trySingularize(table.name)} by id',
+            'description': 'Get $name from ${toSingular(table.name)} by id',
             'tags': [table.name.toCapitalised()],
             'parameters': [
               ...columns
@@ -510,7 +510,7 @@ class Table {
                   .where((c) => c.primaryKey)
                   .map(
                     (c) => {
-                      'name': '${trySingularize(table.name)}_${c.name}',
+                      'name': '${toSingular(table.name)}_${c.name}',
                       'in': 'path',
                       'required': true,
                       'schema': {'type': 'string'},
@@ -540,17 +540,17 @@ class Table {
             },
           },
         },
-        '/${table.name}/{${trySingularize(table.name)}_${table.primaryKey()}}/$name/{${trySingularize(name)}_${columns.firstWhere((c) => c.primaryKey).name}}':
+        '/${table.name}/{${toSingular(table.name)}_${table.primaryKey()}}/$name/{${toSingular(name)}_${columns.firstWhere((c) => c.primaryKey).name}}':
             {
               'get': {
-                'description': 'Get ${trySingularize(name)} from ${trySingularize(table.name)} by id',
+                'description': 'Get ${toSingular(name)} from ${toSingular(table.name)} by id',
                 'tags': [table.name.toCapitalised()],
                 'parameters': [
                   ...table.columns
                       .where((c) => c.primaryKey)
                       .map(
                         (c) => {
-                          'name': '${trySingularize(table.name)}_${c.name}',
+                          'name': '${toSingular(table.name)}_${c.name}',
                           'in': 'path',
                           'required': true,
                           'schema': c.toSwagger(),
@@ -560,7 +560,7 @@ class Table {
                       .where((c) => c.primaryKey)
                       .map(
                         (c) => {
-                          'name': '${trySingularize(name)}_${c.name}',
+                          'name': '${toSingular(name)}_${c.name}',
                           'in': 'path',
                           'required': true,
                           'schema': c.toSwagger(),
@@ -595,9 +595,34 @@ class Table {
   }
 }
 
-String trySingularize(String text) {
-  if (text.endsWith('s')) return text.substring(0, text.length - 1);
-  if (text.endsWith('ies')) return '${text.substring(0, text.length - 3)}y';
-  if (text.endsWith('es')) return text.substring(0, text.length - 2);
-  return text;
+String toSingular(String word) {
+  final irregulars = {
+    'children': 'child',
+    'men': 'man',
+    'women': 'woman',
+    'people': 'person',
+    'teeth': 'tooth',
+    'feet': 'foot',
+    'mice': 'mouse',
+    'geese': 'goose',
+    'oxen': 'ox',
+  };
+
+  if (irregulars.containsKey(word.toLowerCase())) {
+    return irregulars[word.toLowerCase()]!;
+  }
+
+  final rules = {
+    RegExp(r'ies$'): (String w) => w.replaceAll(RegExp(r'ies$'), 'y'),
+    RegExp(r'(xes|ches|shes|sses|zes)$'): (String w) => w.replaceAll(RegExp(r'es$'), ''),
+    RegExp(r's$'): (String w) => w.substring(0, w.length - 1),
+  };
+
+  for (final key in rules.keys) {
+    if (key.hasMatch(word)) {
+      return rules[key]?.call(word) ?? word;
+    }
+  }
+
+  return word;
 }

@@ -162,6 +162,20 @@ void main(List<String> args) async {
               params.remove(key);
             }
           }
+          for (final key in params.keys) {
+            final value = params[key] ?? '';
+
+            final regex = RegExp(r'(\w+):(.+)');
+
+            final match = regex.firstMatch(value);
+
+            if (match != null) {
+              final op1 = match.group(1);
+              final val1 = match.group(2);
+
+              print('op1 $op1 val1 $val1');
+            }
+          }
           final where = switch (params.isEmpty) {
             true => '',
             false => ' WHERE ${params.keys.map((e) => '$e = ?').join(' AND ')}',
@@ -220,7 +234,7 @@ void main(List<String> args) async {
         _ => '<pk>',
       };
 
-      recursive(table, pkPattern, pkName, pkType, tables, router, db);
+      recursiveRoutes(table, pkPattern, pkName, pkType, tables, router, db);
 
       router.get(
         '/${table.name}/$pkPattern',
@@ -375,7 +389,7 @@ void main(List<String> args) async {
   print('Listening on http://${server.address.host}:${server.port}');
 }
 
-void recursive(
+void recursiveRoutes(
   Table pkTable,
   String pkPattern,
   String pkName,
@@ -496,7 +510,7 @@ void recursive(
       );
 
       if (tables.any((t) => t.columns.any((col) => col.referencesTable == fkTable.name))) {
-        recursive(fkTable, fkPattern, fkName, fkType, tables, router, db);
+        recursiveRoutes(fkTable, fkPattern, fkName, fkType, tables, router, db);
       }
     }
   }
