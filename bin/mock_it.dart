@@ -8,6 +8,7 @@ import 'package:mock_it/src/table.dart';
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as io;
+import 'package:shelf_cors_headers/shelf_cors_headers.dart';
 import 'package:shelf_router/shelf_router.dart';
 import 'package:shelf_swagger_ui/shelf_swagger_ui.dart';
 import 'package:sqlite3/sqlite3.dart';
@@ -38,6 +39,11 @@ void main(List<String> args) async {
   final content = await input.readAsString();
   final tables = await parseSqlFile(content);
   db.execute(content);
+  final overrideHeaders = {
+    ACCESS_CONTROL_ALLOW_ORIGIN: '*',
+    ACCESS_CONTROL_ALLOW_HEADERS: 'Content-Type, Authorization',
+    ACCESS_CONTROL_ALLOW_METHODS: 'GET, POST, PUT, DELETE, PATCH, OPTIONS',
+  };
   final router = Router();
   final swagger = <String, dynamic>{
     'openapi': '3.0.0',
@@ -386,20 +392,7 @@ void main(List<String> args) async {
   );
   final handler = Pipeline()
       .addMiddleware(logRequests())
-      .addMiddleware(
-        (Handler handler) {
-          return (Request request) async {
-            final change = request.change(
-              headers: {
-                'Access-Control-Allow-Origin': '*',
-                'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, PATCH, OPTIONS',
-                'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-              },
-            );
-            return handler(change);
-          };
-        },
-      )
+      .addMiddleware(corsHeaders(headers: overrideHeaders))
       .addHandler(router.call);
   final server = await io.serve(handler, '0.0.0.0', port);
   print('Listening on http://${server.address.host}:${server.port}');
@@ -530,19 +523,4 @@ void recursiveRoutes(
       }
     }
   }
-}
-
-Middleware cors() {
-  return (Handler handler) {
-    return (Request request) async {
-      final change = request.change(
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, PATCH, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-        },
-      );
-      return handler(change);
-    };
-  };
 }
