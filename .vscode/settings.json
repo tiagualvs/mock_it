@@ -1,3 +1,4 @@
 {
-  "dart.flutterSdkPath": ".fvm/versions/stable"
+  "dart.flutterSdkPath": "C:\\Users\\tiago\\.puro\\envs\\stable\\flutter",
+    "dart.sdkPath": "C:\\Users\\tiago\\.puro\\envs\\stable\\flutter\\bin\\cache\\dart-sdk"
 }

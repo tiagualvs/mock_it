@@ -1,6 +1,6 @@
 name: mock_it
 description: A mock server based on SQLite made with Dart.
-version: 1.0.0+4
+version: 1.0.0+5
 
 executables: 
   mock_it:

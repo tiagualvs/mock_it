@@ -384,7 +384,23 @@ void main(List<String> args) async {
     '/docs',
     SwaggerUI(json.encode(swagger), title: 'MockIt API').call,
   );
-  final handler = Pipeline().addMiddleware(logRequests()).addHandler(router.call);
+  final handler = Pipeline()
+      .addMiddleware(logRequests())
+      .addMiddleware(
+        (Handler handler) {
+          return (Request request) async {
+            final change = request.change(
+              headers: {
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, PATCH, OPTIONS',
+                'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+              },
+            );
+            return handler(change);
+          };
+        },
+      )
+      .addHandler(router.call);
   final server = await io.serve(handler, '0.0.0.0', port);
   print('Listening on http://${server.address.host}:${server.port}');
 }
@@ -514,4 +530,19 @@ void recursiveRoutes(
       }
     }
   }
+}
+
+Middleware cors() {
+  return (Handler handler) {
+    return (Request request) async {
+      final change = request.change(
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, PATCH, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        },
+      );
+      return handler(change);
+    };
+  };
 }
